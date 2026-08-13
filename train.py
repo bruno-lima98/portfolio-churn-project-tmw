@@ -152,3 +152,18 @@ feature_importance[feature_importance["acum."] <= 0.95]
 
 # %%
 feature_importance[(feature_importance[0] > 0.01) & (feature_importance["acum."] <= 0.95)]
+# %%
+
+# 3. MODIFY
+
+# -> Padronização: normalização, padronização min-max, etc
+# -> Imputação de missings: treinar um modelo sem a variavel missing para decidir
+# -> Binning: dividir uma variável contínua em faixas
+# -> OneHot Encoding: criar colunas baseada nas possibilidades de categoria 
+# -> Mean Encoder: calcular % da variavel resposta para cada categoria e criar uma
+# coluna com essa informação no lugar
+# -> Agrupar Categorias: pode agrupar as categorias, para ter menos, pode ser manual
+# ou até mesmo algum algorítimo de clustering
+# -> Tranformação de logaritimo, tranformação de exponecial: pesquisar sobre
+# -> Combinação de variáveis
+
