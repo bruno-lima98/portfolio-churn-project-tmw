@@ -1,284 +1,150 @@
-# %% 
+# %%
 import pandas as pd
+
+from sklearn import tree
+from sklearn import model_selection
+from sklearn import ensemble
+from sklearn import pipeline
+from sklearn import metrics
+
+import mlflow
+
+from feature_engine import discretisation, encoding
+
 import matplotlib.pyplot as plt
 
-pd.set_option('display.max_rows', 200)
+mlflow.set_tracking_uri("http://127.0.0.1:5000/")
+mlflow.set_experiment(experiment_id='690495133568641886')
 
-# %%
-# TÉCNICA UTILIZADA PARA GUIAR: SEMMA
-# S: SAMPLE
-# E: EXPLORE
-# M: MODIFY
-# M: MODEL
-# A: ASSES
+pd.options.display.max_columns = 500
+pd.options.display.max_rows = 500
 
-# %%
-df = pd.read_csv("data/abt_churn.csv")
+df = pd.read_csv("../data/abt_churn.csv")
 df.head()
 
 # %%
-
-df["dtRef"].value_counts().sort_index()
-
-# %%
-
-# => OUT OF TIME: select the most actual safra of the data to test it to see 
-# if it will work in the "future"
-
-oot = df[(df["dtRef"] == df["dtRef"].max())].copy()
-print(oot.shape)
-
-oot.head()
+oot =  df[df["dtRef"]==df['dtRef'].max()].copy()
+df_train = df[df["dtRef"]<df['dtRef'].max()].copy()
 
 # %%
 
-df_train = df[(df["dtRef"] < df["dtRef"].max())].copy()
-print(df_train.shape)
-df_train.head(2)
+# Essas são as variáveis
+features = df_train.columns[2:-1]
 
-# %%
-
-# Variáveis das features:
-features = df_train.columns[2:-1] # id_usuario até 1 antes da variavel alvo
-
-# Variável target:
-target = df_train.columns[-1] # id_usuario até 1 antes da variavel alvo
+# Essa é a nossa target
+target = 'flagChurn'
 
 X, y = df_train[features], df_train[target]
 
-# %%
-
-# 1: SAMPLE
-
-from sklearn import model_selection
-
-X_train, X_test, y_train, y_test = model_selection.train_test_split(
-                                                                X, y,
-                                                                random_state=42,
-                                                                test_size=0.2
-                                                                )
 
 # %%
+# SAMPLE
 
-# Verificar se as amostras são "parecidas"
+X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y,
+                                                                    random_state=42,
+                                                                    test_size=0.2,
+                                                                    stratify=y,
+                                                                    )
 
-print("Taxa variável resposta [Treino]:", y_train.mean().round(4))
-print("Taxa variável resposta [Teste]:", y_test.mean().round(4))
+print("Taxa variável resposta geral:", y.mean())
+print("Taxa variável resposta Treino:", y_train.mean())
+print("Taxa variável resposta Test:", y_test.mean())
 
 # %%
 
-# Vamos estratificar: garantir que a mesma quantidade de resposta (0/1) proporcional
-# em ambos os datasets Treino/Teste
-
-X_train, X_test, y_train, y_test = model_selection.train_test_split(
-                                                                X, y,
-                                                                random_state = 42,
-                                                                test_size = 0.2,
-                                                                stratify = y
-                                                                )
-
-print("Taxa variável resposta [Treino]:", y_train.mean().round(4))
-print("Taxa variável resposta [Teste]:", y_test.mean().round(4))
-
-# %%
-
-# 2: EXPLORE (EDA -> Explore Data Analysis)
+# EXPLORE (MISSINGS)
 
 X_train.isna().sum().sort_values(ascending=False)
 
 # %%
 
 df_analise = X_train.copy()
-df_analise["target"] = y_train
-df_analise.head(2)
+df_analise[target] = y_train
+summario = df_analise.groupby(by=target).agg(["mean", "median"]).T
+summario['diff_abs'] = summario[0] - summario[1]
+summario['diff_rel'] = summario[0] / summario[1]
+summario.sort_values(by=['diff_rel'], ascending=False)
 
 # %%
 
-sumario = df_analise.groupby(by="target").agg(["mean", "median"]).T
-sumario
-
-# %%
-
-sumario["diff_abs"] = sumario[0] - sumario[1]
-sumario["diff_rel"] = sumario[0] / sumario[1]
-sumario.round(3).sort_values(by=["diff_rel"], ascending=False)
-
-# %%
-
-from sklearn import tree
-
-arvore = tree.DecisionTreeClassifier(random_state = 42, max_depth = 5)
+arvore = tree.DecisionTreeClassifier(random_state=42)
 arvore.fit(X_train, y_train)
 
-# %%
+feature_importances = (pd.Series(arvore.feature_importances_,
+                                 index=X_train.columns)
+                         .sort_values(ascending=False)
+                         .reset_index()
+                         )
 
-plt.figure(dpi=800)
-
-tree.plot_tree(
-    arvore,
-    feature_names=X_train.columns,
-    filled=True,
-    class_names=[str(i) for i in arvore.classes_]
-)
-
-plt.show()
+feature_importances['acum.']=feature_importances[0].cumsum()
+feature_importances[feature_importances['acum.'] < 0.96]
 
 # %%
 
-# Vamos remover o max_depth para pegar todas as features (mas sem plot)
-arvore = tree.DecisionTreeClassifier(random_state = 42)
-arvore.fit(X_train, y_train)
+best_features = (feature_importances[feature_importances['acum.'] < 0.96]['index']
+                 .tolist())
 
-# %%
-
-feature_importance = (
-                    pd.Series(arvore.feature_importances_, index=X_train.columns)
-                    .sort_values(ascending=False)
-                    .reset_index()
-                    )
-
-feature_importance["acum."] = feature_importance[0].cumsum()
-feature_importance
-
-# Pegar talvez o que vai até 95%?
-# Pegar apenas quem contribui pelo menos 1%?
-# Ou a combinação dos dois?
-
-# %%
-feature_importance[feature_importance[0] > 0.01]
-
-# %%
-feature_importance[feature_importance["acum."] <= 0.95]
-
-# %%
-feature_importance[(feature_importance[0] > 0.01) & (feature_importance["acum."] <= 0.95)]
-# %%
-
-# 3. MODIFY
-
-# -> Padronização: normalização, padronização min-max, etc
-# -> Imputação de missings: treinar um modelo sem a variavel missing para decidir
-# -> Binning: dividir uma variável contínua em faixas
-# -> OneHot Encoding: criar colunas baseada nas possibilidades de categoria 
-# -> Mean Encoder: calcular % da variavel resposta para cada categoria e criar uma
-# coluna com essa informação no lugar
-# -> Agrupar Categorias: pode agrupar as categorias, para ter menos, pode ser manual
-# ou até mesmo algum algorítimo de clustering
-# -> Tranformação de logaritimo, tranformação de exponecial: pesquisar sobre
-# -> Combinação de variáveis
-
-best_features = feature_importance[feature_importance["acum."] <= 0.95]["index"].to_list()
 best_features
 
 # %%
-from feature_engine import discretisation, encoding
-from sklearn import pipeline
+# MODIFY
 
-# V1: Utilizando um passo a passo mais bruto
-
-# Discretizar com binning
-# tree_discretization = discretisation.DecisionTreeDiscretiser(
-#                                                         variables = best_features,
-#                                                         regression = False,
-#                                                         bin_output = "bin_number",
-#                                                         cv = 3
-#                                                         )
-
-# tree_discretization.fit(X_train[best_features], y_train)
-# X_train_transform = tree_discretization.transform(X_train[best_features])
-
-# # OneHot
-# onehot = encoding.OneHotEncoder(
-#                             variables = best_features,
-#                             ignore_format = True
-#                             )
-# onehot.fit(X_train_transform, y_train)
-
-# X_train_transform = onehot.transform(X_train_transform)
-# X_train_transform
-
-# from sklearn import linear_model
-
-# reg = linear_model.LogisticRegression(
-#                                     penalty = None,
-#                                     random_state = 42,
-#                                     max_iter = 1000000)
-
-# reg.fit(X_train_transform, y_train)
-
-# V2: Utilizando um pipeline de transformação
-
+## Discretizar
 tree_discretization = discretisation.DecisionTreeDiscretiser(
-                                                        variables = best_features,
-                                                        regression = False,
-                                                        bin_output = "bin_number",
-                                                        cv = 3
-                                                        )
-
-# OneHot
-onehot = encoding.OneHotEncoder(
-                            variables = best_features,
-                            ignore_format = True
-                            )
-
-# %%
-
-# 4. MODEL
-
-from sklearn import linear_model
-from sklearn import naive_bayes
-from sklearn import ensemble
-
-model = linear_model.LogisticRegression(
-                                    penalty = None,
-                                    random_state = 42,
-                                    max_iter = 1000000)
-
-# model = naive_bayes.BernoulliNB()
-
-# model = ensemble.RandomForestClassifier(
-#                                     random_state = 42,
-#                                     min_samples_leaf = 20,
-#                                     n_jobs = -1, # todos os nucleos
-#                                     n_estimators = 1000
-#                                     )
-
-# model = ensemble.AdaBoostClassifier(
-#                                     random_state = 42,
-#                                     n_estimators = 1000,
-#                                     learning_rate = 0.01
-#                                     )
-
-model_pipeline = pipeline.Pipeline(
-    steps = [
-        ("Discretizar", tree_discretization),
-        ("OneHot", onehot),
-        ("Model", model)
-    ]
+    variables=best_features,
+    regression=False,
+    bin_output='bin_number',
+    cv=3,
 )
 
-import mlflow
-from sklearn import metrics
+# Onehot
+onehot = encoding.OneHotEncoder(variables=best_features, ignore_format=True)
 
-mlflow.set_tracking_uri("http://127.0.0.1:5000/")   
 
-mlflow.set_experiment(experiment_id = 1)
+# %%
+# MODEL
 
 with mlflow.start_run():
+
     mlflow.sklearn.autolog()
+
+    model = ensemble.RandomForestClassifier(
+        random_state=42,
+        n_jobs=2,
+    )
+
+    params = {
+        "min_samples_leaf":[15,20,25,30,50],
+        "n_estimators":[100,200,500,1000],
+        "criterion":['gini', 'entropy', 'log_loss'],
+    }
+
+    grid = model_selection.GridSearchCV(model,
+                                        params,
+                                        cv=3,
+                                        scoring='roc_auc',
+                                        verbose=4,
+                                        )
+
+    model_pipeline = pipeline.Pipeline(
+        steps=[
+            ('Discretizar', tree_discretization),
+            ('Onehot', onehot),
+            ('Grid',grid), 
+        ]
+    )
+
     model_pipeline.fit(X_train[best_features], y_train)
 
-    # V2:
-
+    ## ASSESS
     y_train_predict = model_pipeline.predict(X_train[best_features])
     y_train_proba = model_pipeline.predict_proba(X_train[best_features])[:,1]
 
     acc_train = metrics.accuracy_score(y_train, y_train_predict)
     auc_train = metrics.roc_auc_score(y_train, y_train_proba)
     roc_train = metrics.roc_curve(y_train, y_train_proba)
-
-    print("Acurácia [Treino] =", round(acc_train,4))
-    print("AUC [Treino] =", round(auc_train,4))
+    print("Acurácia Treino:", acc_train)
+    print("AUC Treino:", auc_train)
 
     y_test_predict = model_pipeline.predict(X_test[best_features])
     y_test_proba = model_pipeline.predict_proba(X_test[best_features])[:,1]
@@ -286,9 +152,8 @@ with mlflow.start_run():
     acc_test = metrics.accuracy_score(y_test, y_test_predict)
     auc_test = metrics.roc_auc_score(y_test, y_test_proba)
     roc_test = metrics.roc_curve(y_test, y_test_proba)
-
-    print("Acurácia [Teste] =", round(acc_test,4))
-    print("AUC [Teste] =", round(auc_test,4))
+    print("Acurácia Test:", acc_test)
+    print("AUC Test:", auc_test)
 
     y_oot_predict = model_pipeline.predict(oot[best_features])
     y_oot_proba = model_pipeline.predict_proba(oot[best_features])[:,1]
@@ -296,69 +161,33 @@ with mlflow.start_run():
     acc_oot = metrics.accuracy_score(oot[target], y_oot_predict)
     auc_oot = metrics.roc_auc_score(oot[target], y_oot_proba)
     roc_oot = metrics.roc_curve(oot[target], y_oot_proba)
-
-    print("Acurácia [OOT] =", round(acc_oot,4))
-    print("AUC [OOT] =", round(auc_oot,4))
+    print("Acurácia oot:", acc_oot)
+    print("AUC oot:", auc_oot)
 
     mlflow.log_metrics({
-        "acc_train": acc_train,
-        "auc_train": auc_train,
-        "acc_test": acc_test,
-        "auc_test": auc_test,
-        "acc_oot": acc_oot,
-        "auc_oot": auc_oot
-       })
+    "acc_train":acc_train,
+    "auc_train":auc_train,
+    "acc_test":acc_test,
+    "auc_test":auc_test,
+    "acc_oot":acc_oot,
+    "auc_oot":auc_oot,
+    })
 
 # %%
 
-# 5. ASSES
-
-# V1
-
-# y_train_predict = reg.predict(X_train_transform)
-# y_train_proba = reg.predict_proba(X_train_transform)[:,1]
-
-# acc_train = metrics.accuracy_score(y_train, y_train_predict)
-# auc_train = metrics.roc_auc_score(y_train, y_train_proba)
-
-# print("Acurácia [Treino] =", round(acc_train,4))
-# print("AUC [Treino] =", round(auc_train,4))
-
-# # %%
-
-# X_test_transform = tree_discretization.transform(X_test[best_features])
-# X_test_transform = onehot.transform(X_test_transform)
-
-# y_test_predict = reg.predict(X_test_transform)
-# y_test_proba = reg.predict_proba(X_test_transform)[:,1]
-
-# acc_test = metrics.accuracy_score(y_test, y_test_predict)
-# auc_test = metrics.roc_auc_score(y_test, y_test_proba)
-
-# print("Acurácia [Teste] =", round(acc_test,4))
-# print("AUC [Teste] =", round(auc_test,4))
-
-# X_oot_transform = tree_discretization.transform(oot[best_features])
-# X_oot_transform = onehot.transform(X_oot_transform)
-
-# y_oot_predict = reg.predict(X_oot_transform)
-# y_oot_proba = reg.predict_proba(X_oot_transform)[:,1]
-
-# acc_oot = metrics.accuracy_score(oot[target], y_oot_predict)
-# auc_oot = metrics.roc_auc_score(oot[target], y_oot_proba)
-
-# print("Acurácia [OOT] =", round(acc_oot,4))
-# print("AUC [OOT] =", round(auc_oot,4))
-
-# %%
-
+plt.figure(dpi=400)
 plt.plot(roc_train[0], roc_train[1])
 plt.plot(roc_test[0], roc_test[1])
 plt.plot(roc_oot[0], roc_oot[1])
+plt.plot([0,1], [0,1], '--', color='black')
 plt.grid(True)
-plt.title("ROC Curve")
+plt.ylabel("Sensibilidade")
+plt.xlabel("1 - Especificidade")
+plt.title("Curva ROC")
 plt.legend([
     f"Treino: {100*auc_train:.2f}",
     f"Teste: {100*auc_test:.2f}",
     f"Out-of-Time: {100*auc_oot:.2f}",
 ])
+
+plt.show()
