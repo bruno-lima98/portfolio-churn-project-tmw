@@ -13,13 +13,13 @@ from feature_engine import discretisation, encoding
 
 import matplotlib.pyplot as plt
 
-mlflow.set_tracking_uri("http://127.0.0.1:5000/")
-mlflow.set_experiment(experiment_id='690495133568641886')
+# mlflow.set_tracking_uri("http://127.0.0.1:5000/")
+# mlflow.set_experiment(experiment_id='690495133568641886')
 
 pd.options.display.max_columns = 500
 pd.options.display.max_rows = 500
 
-df = pd.read_csv("../data/abt_churn.csv")
+df = pd.read_csv("data/abt_churn.csv")
 df.head()
 
 # %%
@@ -191,3 +191,4 @@ plt.legend([
 ])
 
 plt.show()
+# %%
